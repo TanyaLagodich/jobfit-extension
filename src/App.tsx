@@ -1,144 +1,83 @@
-import { useState } from "react";
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  // Это нужно потому что по умолчанию OpenAI SDK запрещает работу в браузере
-  // В продакшене ключ должен быть на сервере, но для пет-проекта так ок
-  dangerouslyAllowBrowser: true,
-});
-
-type JobData = {
-  fullText: string;
-  url: string;
-};
-
-type Analysis = {
-  fitScore: number;
-  title: string;
-  company: string;
-  whyMatch: string[];
-  concerns: string[];
-  stack: string[];
-  missingSkills: string[];
-  interviewTopics: string[];
-};
+import { useEffect, useState } from "react";
 
 function App() {
-  const [loading, setLoading] = useState(false);
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [isLinkedIn, setIsLinkedIn] = useState(false);
 
-  async function analyze() {
-    setLoading(true);
-    setError(null);
+  // Проверяем при открытии popup — на LinkedIn ли мы сейчас
+  useEffect(() => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const url = tabs[0]?.url ?? "";
+      setIsLinkedIn(url.includes("linkedin.com/jobs"));
+    });
+  }, []);
 
-    try {
-      const [tab] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      const jobData: JobData = await chrome.tabs.sendMessage(tab.id!, {
-        type: "GET_JOB_DATA",
-      });
-
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        // gpt-4o-mini — самая дешёвая модель OpenAI, ~$0.0002 за запрос
-        // для пет-проекта $5 хватит на тысячи запросов
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are helping a frontend developer evaluate job postings. Always respond with valid JSON only, no markdown, no code blocks.",
-          },
-          {
-            role: "user",
-            content: `
-  You are analyzing a LinkedIn job posting page text.
-
-  Page text:
-  ${jobData.fullText}
-
-  My profile: senior frontend developer, 7 years of Vue.js experience, basic React knowledge, TypeScript, strong CSS/HTML skills.
-
-  Extract the job title and company name from the text above.
-  Then evaluate how well my profile matches this job.
-
-  Return ONLY valid JSON, no markdown, no code blocks:
-  {
-    "fitScore": number from 0 to 100,
-    "title": "job title extracted from the text",
-    "company": "company name extracted from the text",
-    "whyMatch": ["reason 1", "reason 2", "reason 3"],
-    "concerns": ["concern 1", "concern 2"],
-    "stack": ["technology 1", "technology 2"],
-    "missingSkills": ["skill 1", "skill 2"],
-    "interviewTopics": ["topic 1", "topic 2", "topic 3"]
-  }
-`,
-          },
-        ],
-      });
-
-      // OpenAI возвращает ответ в choices[0].message.content
-      const text = response.choices[0].message.content ?? "";
-      console.log("Job data:", jobData);
-      console.log("AI response:", text); // добавь эту строку
-      const parsed: Analysis = JSON.parse(text);
-      setAnalysis(parsed);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Что-то пошло не так");
-    } finally {
-      setLoading(false);
-    }
+  async function openSidebar() {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+    // Отправляем сообщение content script — открой sidebar
+    await chrome.tabs.sendMessage(tab.id!, { type: "TOGGLE_SIDEBAR" });
+    // Закрываем popup
+    window.close();
   }
 
   return (
-    <div style={{ width: 380, padding: 16, fontFamily: "sans-serif" }}>
-      <h2>JobFit AI</h2>
-
-      <button onClick={analyze} disabled={loading}>
-        {loading ? "Анализирую..." : "Анализировать вакансию"}
-      </button>
-
-      {error && <p style={{ color: "red", marginTop: 8 }}>{error}</p>}
-
-      {analysis && (
-        <div style={{ marginTop: 16 }}>
-          <h3>Fit Score: {analysis.fitScore}/100</h3>
-          <p>
-            <strong>{analysis.title}</strong> · {analysis.company}
-          </p>
-
-          <h4 style={{ marginTop: 12 }}>Почему подходишь:</h4>
-          <ul>
-            {analysis.whyMatch.map((item, i) => (
-              <li key={i}>{item}</li>
-            ))}
-          </ul>
-
-          <h4 style={{ marginTop: 12 }}>Опасения:</h4>
-          <ul>
-            {analysis.concerns.map((item, i) => (
-              <li key={i}>{item}</li>
-            ))}
-          </ul>
-
-          <h4 style={{ marginTop: 12 }}>Стек:</h4>
-          <p>{analysis.stack.join(", ")}</p>
-
-          <h4 style={{ marginTop: 12 }}>Пропущенные скиллы:</h4>
-          <p>{analysis.missingSkills.join(", ")}</p>
-
-          <h4 style={{ marginTop: 12 }}>Темы для интервью:</h4>
-          <ul>
-            {analysis.interviewTopics.map((item, i) => (
-              <li key={i}>{item}</li>
-            ))}
-          </ul>
+    <div className="w-[300px] bg-[#1a1a2e] text-white font-sans">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/10">
+        <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+              stroke="white"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </div>
-      )}
+        <span className="font-semibold text-sm tracking-wide">
+          AI Job Match
+        </span>
+      </div>
+
+      <div className="px-4 py-6 text-center">
+        {isLinkedIn ? (
+          <>
+            <p className="text-white/40 text-sm mb-4">Job posting detected</p>
+            <button
+              onClick={openSidebar}
+              className="w-full py-3 rounded-xl bg-violet-600 hover:bg-violet-500 transition-colors text-sm font-medium"
+            >
+              Open Analysis
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-3">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"
+                  stroke="white"
+                  strokeOpacity="0.4"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"
+                  stroke="white"
+                  strokeOpacity="0.4"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+            <p className="text-white/40 text-sm">
+              Open a LinkedIn job posting to analyze it
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }
